@@ -23,7 +23,7 @@ func (w *syslogTestWrap) TestReachable(dial dialer.Dialer, includeSendTestLog bo
 	if w.Protocol == "udp" {
 		conn, err := net.Dial("udp", w.Endpoint)
 		if err != nil {
-			return errors.Wrapf(err, "dail to udp endpoint %s failed", w.Endpoint)
+			return errors.Wrapf(err, "couldn't dail udp endpoint %s", w.Endpoint)
 		}
 		defer conn.Close()
 
@@ -37,7 +37,7 @@ func (w *syslogTestWrap) TestReachable(dial dialer.Dialer, includeSendTestLog bo
 	if w.EnableTLS {
 		hostName, _, err := net.SplitHostPort(w.Endpoint)
 		if err != nil {
-			return errors.Wrapf(err, "parse endpoint %s failed", w.Endpoint)
+			return errors.Wrapf(err, "couldn't parse url %s", w.Endpoint)
 		}
 
 		tlsConfig, err = buildTLSConfig(w.Certificate, w.ClientCert, w.ClientKey, "", "", hostName, w.SSLVerify)
@@ -57,15 +57,13 @@ func (w *syslogTestWrap) TestReachable(dial dialer.Dialer, includeSendTestLog bo
 	}
 
 	if _, err = conn.Write(syslogTestData); err != nil {
-		return errors.Wrapf(err, "write data to server %s failed", w.Endpoint)
+		return errors.Wrapf(err, "couldn't write data to syslog %s", w.Endpoint)
 	}
 
-	if !w.EnableTLS {
-		// for not tls try read to check whether the server close connect already
-		resBuf := make([]byte, 1024)
-		if _, err := conn.Read(resBuf); err != nil {
-			return errors.Wrapf(err, "read data from syslog server %s failed", w.Endpoint)
-		}
+	// try read to check whether the server close connect already
+	// because can't set read deadline for remote dialer, so if the error is timeout will treat as remote server not close the connection
+	if _, err := readDataWithTimeout(conn); err != nil && err != errReadDataTimeout {
+		return errors.Wrapf(err, "couldn't read data from syslog %s", w.Endpoint)
 	}
 
 	return nil

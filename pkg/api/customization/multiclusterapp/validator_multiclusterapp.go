@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type Wrapper struct {
@@ -33,6 +34,10 @@ type Wrapper struct {
 	Users                         v3.UserInterface
 	GrbLister                     v3.GlobalRoleBindingLister
 	GrLister                      v3.GlobalRoleLister
+	Prtbs                         v3.ProjectRoleTemplateBindingInterface
+	Crtbs                         v3.ClusterRoleTemplateBindingInterface
+	ProjectLister                 v3.ProjectLister
+	ClusterLister                 v3.ClusterLister
 }
 
 const (
@@ -86,6 +91,10 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 		RoleTemplateLister: w.RoleTemplateLister,
 		GrbLister:          w.GrbLister,
 		GrLister:           w.GrLister,
+		Prtbs:              w.Prtbs,
+		Crtbs:              w.Crtbs,
+		ProjectLister:      w.ProjectLister,
+		ClusterLister:      w.ClusterLister,
 	}
 	var targetProjects []string
 	callerID := request.Request.Header.Get(gaccess.ImpersonateUserHeader)
@@ -105,7 +114,7 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 	if len(split) != 2 {
 		return fmt.Errorf("incorrect multiclusterapp ID %v", request.ID)
 	}
-	mcapp, err := w.MultiClusterAppLister.Get(split[0], split[1])
+	mcapp, err := w.MultiClusterApps.GetNamespaced(split[0], split[1], v1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -156,5 +165,8 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 	for _, t := range mcapp.Spec.Targets {
 		targetProjects = append(targetProjects, t.ProjectName)
 	}
-	return ma.EnsureRoleInTargets(targetProjects, rolesToAdd, callerID)
+	if err = ma.EnsureRoleInTargets(targetProjects, rolesToAdd, callerID); err != nil {
+		return err
+	}
+	return ma.RemoveRolesFromTargets(targetProjects, rolesToRemove, mcapp.Name, false)
 }

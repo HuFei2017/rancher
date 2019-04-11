@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -174,8 +175,13 @@ func RebuildState(ctx context.Context, rkeConfig *v3.RancherKubernetesEngineConf
 		}
 		newState.DesiredState.CertificatesBundle = certBundle
 	} else {
-		// Regenerating etcd certificates for any new etcd nodes
 		pkiCertBundle := oldState.DesiredState.CertificatesBundle
+		// check for legacy clusters prior to requestheaderca
+		if pkiCertBundle[pki.RequestHeaderCACertName].Certificate == nil {
+			if err := pki.GenerateRKERequestHeaderCACert(ctx, pkiCertBundle, flags.ClusterFilePath, flags.ConfigDir); err != nil {
+				return nil, err
+			}
+		}
 		if err := pki.GenerateRKEServicesCerts(ctx, pkiCertBundle, *rkeConfig, flags.ClusterFilePath, flags.ConfigDir, false); err != nil {
 			return nil, err
 		}
@@ -258,4 +264,30 @@ func removeStateFile(ctx context.Context, statePath string) {
 		return
 	}
 	log.Infof(ctx, "State file removed successfully")
+}
+
+func GetStateFromNodes(ctx context.Context, kubeCluster *Cluster) *Cluster {
+	log.Infof(ctx, "[state] Fetching cluster state from Nodes")
+	var currentCluster Cluster
+	var clusterFile string
+	var err error
+
+	uniqueHosts := hosts.GetUniqueHostList(kubeCluster.EtcdHosts, kubeCluster.ControlPlaneHosts, kubeCluster.WorkerHosts)
+	for _, host := range uniqueHosts {
+		filePath := path.Join(host.PrefixPath, pki.TempCertPath, pki.ClusterStateFile)
+		clusterFile, err = pki.FetchFileFromHost(ctx, filePath, kubeCluster.SystemImages.Alpine, host, kubeCluster.PrivateRegistriesMap, pki.StateDeployerContainerName, "state")
+		if err == nil {
+			break
+		}
+	}
+	if len(clusterFile) == 0 {
+		return nil
+	}
+	err = yaml.Unmarshal([]byte(clusterFile), &currentCluster)
+	if err != nil {
+		logrus.Debugf("[state] Failed to unmarshal the cluster file fetched from nodes: %v", err)
+		return nil
+	}
+	log.Infof(ctx, "[state] Successfully fetched cluster state from Nodes")
+	return &currentCluster
 }

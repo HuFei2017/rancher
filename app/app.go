@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-
 	"github.com/rancher/norman/leader"
 	"github.com/rancher/norman/pkg/k8scheck"
 	"github.com/rancher/rancher/pkg/audit"
@@ -90,7 +89,7 @@ func Run(ctx context.Context, kubeConfig rest.Config, cfg *Config) error {
 
 	auditLogWriter := audit.NewLogWriter(cfg.AuditLogPath, cfg.AuditLevel, cfg.AuditLogMaxage, cfg.AuditLogMaxbackup, cfg.AuditLogMaxsize)
 
-	if err := server.Start(ctx, cfg.HTTPListenPort, cfg.HTTPSListenPort, scaledContext, clusterManager, auditLogWriter); err != nil {
+	if err := server.Start(ctx, cfg.HTTPListenPort, cfg.HTTPSListenPort, localClusterEnabled(*cfg), scaledContext, clusterManager, auditLogWriter); err != nil {
 		return err
 	}
 
@@ -148,7 +147,7 @@ func addData(management *config.ManagementContext, cfg Config) error {
 		return err
 	}
 
-	if cfg.AddLocal == "true" || (cfg.AddLocal == "auto" && !cfg.Embedded) {
+	if localClusterEnabled(cfg) {
 		if err := addLocalCluster(cfg.Embedded, adminName, management); err != nil {
 			return err
 		}
@@ -183,4 +182,11 @@ func addData(management *config.ManagementContext, cfg Config) error {
 	}
 
 	return addMachineDrivers(management)
+}
+
+func localClusterEnabled(cfg Config) bool {
+	if cfg.AddLocal == "true" || (cfg.AddLocal == "auto" && !cfg.Embedded) {
+		return true
+	}
+	return false
 }

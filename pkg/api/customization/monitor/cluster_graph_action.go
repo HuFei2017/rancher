@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rancher/norman/api/access"
+	"github.com/rancher/norman/httperror"
 	"github.com/rancher/norman/parse"
 	"github.com/rancher/norman/types"
 	"github.com/rancher/norman/types/convert"
@@ -19,6 +20,7 @@ import (
 	mgmtclientv3 "github.com/rancher/types/client/management/v3"
 	"github.com/rancher/types/config"
 	"github.com/rancher/types/config/dialer"
+	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -103,7 +105,8 @@ func (h *ClusterGraphHandler) QuerySeriesAction(actionName string, action *types
 
 	seriesSlice, err := prometheusQuery.Do(queries)
 	if err != nil {
-		return fmt.Errorf("query series failed, %v", err)
+		logrus.WithError(err).Warn("query series failed")
+		return httperror.NewAPIError(httperror.ServerError, "Failed to obtain metrics. The metrics service may not be available.")
 	}
 
 	if seriesSlice == nil {

@@ -646,7 +646,7 @@ func (a ActionHandler) BackupEtcdHandler(actionName string, action *types.Action
 		return errors.Wrapf(err, "failed to get Cluster by ID %s", apiContext.ID)
 	}
 
-	newBackup := etcdbackup.NewBackupObject(cluster)
+	newBackup := etcdbackup.NewBackupObject(cluster, true)
 
 	backup, err := a.BackupClient.Create(newBackup)
 	if err != nil {
@@ -684,16 +684,34 @@ func (a ActionHandler) RestoreFromEtcdBackupHandler(actionName string, action *t
 	// checking access
 	var mgmtCluster mgmtclient.Cluster
 	if err := access.ByID(apiContext, apiContext.Version, apiContext.Type, apiContext.ID, &mgmtCluster); err != nil {
-		response["message"] = "none existent Cluster"
+		response["message"] = "nonexistent Cluster"
 		apiContext.WriteResponse(http.StatusBadRequest, response)
 		return errors.Wrapf(err, "failed to get Cluster by ID %s", apiContext.ID)
 	}
 
 	cluster, err := a.ClusterClient.Get(apiContext.ID, metav1.GetOptions{})
 	if err != nil {
-		response["message"] = "none existent Cluster"
+		response["message"] = "nonexistent Cluster"
 		apiContext.WriteResponse(http.StatusBadRequest, response)
 		return errors.Wrapf(err, "failed to get Cluster by ID %s", apiContext.ID)
+	}
+
+	clusterBackupConfig := cluster.Spec.RancherKubernetesEngineConfig.Services.Etcd.BackupConfig
+	if clusterBackupConfig != nil && clusterBackupConfig.S3BackupConfig == nil {
+		ns, name := ref.Parse(input.EtcdBackupID)
+		if ns == "" || name == "" {
+			return httperror.NewAPIError(httperror.InvalidFormat, fmt.Sprintf("invalid input id %s", input.EtcdBackupID))
+		}
+		backup, err := a.BackupClient.GetNamespaced(ns, name, metav1.GetOptions{})
+		if err != nil {
+			response["message"] = "error getting backup config"
+			apiContext.WriteResponse(http.StatusInternalServerError, response)
+			return errors.Wrapf(err, "failed to get backup config by ID %s", input.EtcdBackupID)
+		}
+		if backup.Spec.BackupConfig.S3BackupConfig != nil {
+			return httperror.NewAPIError(httperror.MethodNotAllowed,
+				fmt.Sprintf("restoring S3 backups with no cluster level S3 configuration is not supported %s", input.EtcdBackupID))
+		}
 	}
 
 	cluster.Spec.RancherKubernetesEngineConfig.Restore.SnapshotName = input.EtcdBackupID

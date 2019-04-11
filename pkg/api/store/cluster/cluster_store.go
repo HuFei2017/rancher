@@ -22,6 +22,7 @@ import (
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	managementv3 "github.com/rancher/types/client/management/v3"
 	"github.com/rancher/types/config"
+	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -46,6 +47,7 @@ func (t *transformer) TransformerFunc(apiContext *types.APIContext, schema *type
 	return t.transposeGenericConfigToDynamicField(data)
 }
 
+//transposeGenericConfigToDynamicField converts a genericConfig to one usable by rancher and maps a kontainer id to a kontainer name
 func (t *transformer) transposeGenericConfigToDynamicField(data map[string]interface{}) (map[string]interface{}, error) {
 	if data["genericEngineConfig"] != nil {
 		drivers, err := t.KontainerDriverLister.List("", labels.Everything())
@@ -55,15 +57,16 @@ func (t *transformer) transposeGenericConfigToDynamicField(data map[string]inter
 
 		var driver *v3.KontainerDriver
 		driverName := data["genericEngineConfig"].(map[string]interface{})[clusterprovisioner.DriverNameField].(string)
+		// iterate over kontainer drivers to find the one that maps to the genericEngineConfig DriverName ("kd-**") -> "example"
 		for _, candidate := range drivers {
 			if driverName == candidate.Name {
 				driver = candidate
 				break
 			}
 		}
-
 		if driver == nil {
-			return nil, fmt.Errorf("got unknown driver from kontainer-engine: %v", data[clusterprovisioner.DriverNameField])
+			logrus.Warnf("unable to find the kontainer driver %v that maps to %v", driverName, data[clusterprovisioner.DriverNameField])
+			return data, nil
 		}
 
 		var driverTypeName string
@@ -262,6 +265,9 @@ func (r *Store) Update(apiContext *types.APIContext, schema *types.Schema, data 
 		return nil, httperror.NewFieldAPIError(httperror.InvalidOption, "enableNetworkPolicy", err.Error())
 	}
 
+	setBackupConfigSecretKeyIfNotExists(existingCluster, data)
+	setPrivateRegistryPasswordIfNotExists(existingCluster, data)
+
 	return r.Store.Update(apiContext, schema, data, id)
 }
 
@@ -372,8 +378,11 @@ func enableLocalBackup(data map[string]interface{}) {
 			return
 		}
 		backupConfig := values.GetValueN(data, "rancherKubernetesEngineConfig", "services", "etcd", "backupConfig")
+
 		if backupConfig == nil {
+			enabled := true
 			backupConfig = &v3.BackupConfig{
+				Enabled:       &enabled,
 				IntervalHours: DefaultBackupIntervalHours,
 				Retention:     DefaultBackupRetention,
 			}
@@ -381,4 +390,47 @@ func enableLocalBackup(data map[string]interface{}) {
 			values.PutValue(data, backupConfig, "rancherKubernetesEngineConfig", "services", "etcd", "backupConfig")
 		}
 	}
+}
+
+func setBackupConfigSecretKeyIfNotExists(oldData, newData map[string]interface{}) {
+	s3BackupConfig := values.GetValueN(newData, "rancherKubernetesEngineConfig", "services", "etcd", "backupConfig", "s3BackupConfig")
+	if s3BackupConfig == nil {
+		return
+	}
+	val := convert.ToMapInterface(s3BackupConfig)
+	if val["secretKey"] != nil {
+		return
+	}
+	oldSecretKey := convert.ToString(values.GetValueN(oldData, "rancherKubernetesEngineConfig", "services", "etcd", "backupConfig", "s3BackupConfig", "secretKey"))
+	if oldSecretKey != "" {
+		values.PutValue(newData, oldSecretKey, "rancherKubernetesEngineConfig", "services", "etcd", "backupConfig", "s3BackupConfig", "secretKey")
+	}
+}
+
+func setPrivateRegistryPasswordIfNotExists(oldData, newData map[string]interface{}) {
+	newSlice, ok := values.GetSlice(newData, "rancherKubernetesEngineConfig", "privateRegistries")
+	if !ok || newSlice == nil {
+		return
+	}
+	oldSlice, ok := values.GetSlice(oldData, "rancherKubernetesEngineConfig", "privateRegistries")
+	if !ok || oldSlice == nil {
+		return
+	}
+
+	var updatedConfig []map[string]interface{}
+	for _, newConfig := range newSlice {
+		if newConfig["password"] != nil {
+			updatedConfig = append(updatedConfig, newConfig)
+			continue
+		}
+		for _, oldConfig := range oldSlice {
+			if newConfig["url"] == oldConfig["url"] && newConfig["user"] == oldConfig["user"] &&
+				oldConfig["password"] != nil {
+				newConfig["password"] = oldConfig["password"]
+				break
+			}
+		}
+		updatedConfig = append(updatedConfig, newConfig)
+	}
+	values.PutValue(newData, updatedConfig, "rancherKubernetesEngineConfig", "privateRegistries")
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rancher/norman/api/access"
+	"github.com/rancher/norman/httperror"
 	"github.com/rancher/norman/parse"
 	"github.com/rancher/norman/types"
 	"github.com/rancher/norman/types/convert"
@@ -16,6 +17,7 @@ import (
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	mgmtclientv3 "github.com/rancher/types/client/management/v3"
 	"github.com/rancher/types/config/dialer"
+	"github.com/sirupsen/logrus"
 )
 
 func NewProjectGraphHandler(dialerFactory dialer.Factory, clustermanager *clustermanager.Manager) *ProjectGraphHandler {
@@ -94,7 +96,8 @@ func (h *ProjectGraphHandler) QuerySeriesAction(actionName string, action *types
 
 	seriesSlice, err := prometheusQuery.Do(queries)
 	if err != nil {
-		return fmt.Errorf("query series failed, %v", err)
+		logrus.WithError(err).Warn("query series failed")
+		return httperror.NewAPIError(httperror.ServerError, "Failed to obtain metrics. The metrics service may not be available.")
 	}
 
 	if seriesSlice == nil {

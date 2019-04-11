@@ -58,7 +58,7 @@ import (
 )
 
 func Setup(ctx context.Context, apiContext *config.ScaledContext, clusterManager *clustermanager.Manager,
-	k8sProxy http.Handler) error {
+	k8sProxy http.Handler, localClusterEnabled bool) error {
 	// Here we setup all types that will be stored in the Management cluster
 	schemas := apiContext.Schemas
 
@@ -154,8 +154,8 @@ func Setup(ctx context.Context, apiContext *config.ScaledContext, clusterManager
 	PodSecurityPolicyTemplate(schemas, apiContext)
 	RoleTemplate(schemas, apiContext)
 	MultiClusterApps(schemas, apiContext)
-	GlobalDNSs(schemas, apiContext)
-	GlobalDNSProviders(schemas, apiContext)
+	GlobalDNSs(schemas, apiContext, localClusterEnabled)
+	GlobalDNSProviders(schemas, apiContext, localClusterEnabled)
 	Monitor(schemas, apiContext, clusterManager)
 	KontainerDriver(schemas, apiContext)
 
@@ -582,6 +582,7 @@ func PodSecurityPolicyTemplate(schemas *types.Schemas, management *config.Scaled
 	schema.Store = &podsecuritypolicytemplate.Store{
 		Store: schema.Store,
 	}
+	schema.Validator = podsecuritypolicytemplate.Validator
 }
 
 func ClusterRoleTemplateBinding(schemas *types.Schemas, management *config.ScaledContext) {
@@ -609,8 +610,8 @@ func KontainerDriver(schemas *types.Schemas, management *config.ScaledContext) {
 		KontainerDriverLister: management.Management.KontainerDrivers("").Controller().Lister(),
 	}
 	schema.ActionHandler = handler.ActionHandler
-	schema.Formatter = kontainerdriver.Formatter
-
+	schema.Formatter = kontainerdriver.NewFormatter(management)
+	schema.Store = kontainerdriver.NewStore(management, schema.Store)
 	kontainerDriverValidator := kontainerdriver.Validator{
 		KontainerDriverLister: management.Management.KontainerDrivers("").Controller().Lister(),
 	}
@@ -638,6 +639,10 @@ func MultiClusterApps(schemas *types.Schemas, management *config.ScaledContext) 
 		Users:                         management.Management.Users(""),
 		GrbLister:                     management.Management.GlobalRoleBindings("").Controller().Lister(),
 		GrLister:                      management.Management.GlobalRoles("").Controller().Lister(),
+		Prtbs:                         management.Management.ProjectRoleTemplateBindings(""),
+		Crtbs:                         management.Management.ClusterRoleTemplateBindings(""),
+		ProjectLister:                 management.Management.Projects("").Controller().Lister(),
+		ClusterLister:                 management.Management.Clusters("").Controller().Lister(),
 	}
 	schema.Formatter = wrapper.Formatter
 	schema.ActionHandler = wrapper.ActionHandler
@@ -645,13 +650,15 @@ func MultiClusterApps(schemas *types.Schemas, management *config.ScaledContext) 
 	schema.Validator = wrapper.Validator
 }
 
-func GlobalDNSs(schemas *types.Schemas, management *config.ScaledContext) {
+func GlobalDNSs(schemas *types.Schemas, management *config.ScaledContext, localClusterEnabled bool) {
 	gdns := globaldns.Wrapper{
 		GlobalDNSes:           management.Management.GlobalDNSs(""),
 		GlobalDNSLister:       management.Management.GlobalDNSs("").Controller().Lister(),
 		PrtbLister:            management.Management.ProjectRoleTemplateBindings("").Controller().Lister(),
 		MultiClusterAppLister: management.Management.MultiClusterApps("").Controller().Lister(),
 		Users:                 management.Management.Users(""),
+		GrbLister:             management.Management.GlobalRoleBindings("").Controller().Lister(),
+		GrLister:              management.Management.GlobalRoles("").Controller().Lister(),
 	}
 	schema := schemas.Schema(&managementschema.Version, client.GlobalDNSType)
 	schema.Store = &globalresource.GlobalNamespaceStore{
@@ -662,13 +669,21 @@ func GlobalDNSs(schemas *types.Schemas, management *config.ScaledContext) {
 	schema.ActionHandler = gdns.ActionHandler
 	schema.Validator = gdns.Validator
 	schema.Store = globaldnsAPIStore.Wrap(schema.Store)
+	if !localClusterEnabled {
+		schema.CollectionMethods = []string{}
+		schema.ResourceMethods = []string{}
+	}
 }
 
-func GlobalDNSProviders(schemas *types.Schemas, management *config.ScaledContext) {
+func GlobalDNSProviders(schemas *types.Schemas, management *config.ScaledContext, localClusterEnabled bool) {
 	schema := schemas.Schema(&managementschema.Version, client.GlobalDNSProviderType)
 	schema.Store = &globalresource.GlobalNamespaceStore{
 		Store:              schema.Store,
 		NamespaceInterface: management.Core.Namespaces(""),
 	}
 	schema.Store = globaldnsAPIStore.ProviderWrap(schema.Store)
+	if !localClusterEnabled {
+		schema.CollectionMethods = []string{}
+		schema.ResourceMethods = []string{}
+	}
 }

@@ -404,6 +404,15 @@ func (d *Driver) GetDriverUpdateOptions(ctx context.Context) (*types.DriverFlags
 		Type:  types.StringSliceType,
 		Usage: "Tags for Kubernetes cluster. For example, foo=bar.",
 	}
+	driverFlag.Options["client-id"] = &types.Flag{
+		Type:  types.StringType,
+		Usage: "Azure client ID to use.",
+	}
+	driverFlag.Options["client-secret"] = &types.Flag{
+		Type:     types.StringType,
+		Password: true,
+		Usage:    `Azure client secret associated with the "client id".`,
+	}
 
 	return &driverFlag, nil
 }
@@ -1387,7 +1396,11 @@ func (d *Driver) ETCDSave(ctx context.Context, clusterInfo *types.ClusterInfo, o
 	return fmt.Errorf("ETCD backup operations are not implemented")
 }
 
-func (d *Driver) ETCDRestore(ctx context.Context, clusterInfo *types.ClusterInfo, opts *types.DriverOptions, snapshotName string) error {
+func (d *Driver) ETCDRestore(ctx context.Context, clusterInfo *types.ClusterInfo, opts *types.DriverOptions, snapshotName string) (*types.ClusterInfo, error) {
+	return nil, fmt.Errorf("ETCD backup operations are not implemented")
+}
+
+func (d *Driver) ETCDRemoveSnapshot(ctx context.Context, clusterInfo *types.ClusterInfo, opts *types.DriverOptions, snapshotName string) error {
 	return fmt.Errorf("ETCD backup operations are not implemented")
 }
 

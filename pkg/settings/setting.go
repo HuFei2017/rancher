@@ -14,7 +14,7 @@ var (
 	InjectDefaults string
 
 	AgentImage                      = NewSetting("agent-image", "rancher/rancher-agent:master")
-	AuthImage                       = NewSetting("auth-image", "rancher/kube-api-auth:v0.1.1")
+	AuthImage                       = NewSetting("auth-image", v3.ToolsSystemImages.AuthSystemImages.KubeAPIAuth)
 	WindowsAgentImage               = NewSetting("windows-agent-image", "rancher/rancher-agent:master-nanoserver-1803")
 	CACerts                         = NewSetting("cacerts", "")
 	CLIURLDarwin                    = NewSetting("cli-url-darwin", "https://releases.rancher.com/cli/v1.0.0-alpha8/rancher-darwin-amd64-v1.0.0-alpha8.tar.gz")
@@ -55,6 +55,7 @@ var (
 	AuthUserInfoResyncCron          = NewSetting("auth-user-info-resync-cron", "0 0 * * *")
 	AuthUserInfoMaxAgeSeconds       = NewSetting("auth-user-info-max-age-seconds", "3600") // 1 hour
 	APIUIVersion                    = NewSetting("api-ui-version", "1.1.6")                // Please update the CATTLE_API_UI_VERSION in package/Dockerfile when updating the version here.
+	RotateCertsIfExpiringInDays     = NewSetting("rotate-certs-if-expiring-in-days", "7")  // 7 days
 )
 
 func init() {

@@ -389,6 +389,11 @@ func (d *Driver) GetDriverUpdateOptions(ctx context.Context) (*types.DriverFlags
 		Type:  types.StringType,
 		Usage: "The kubernetes node version to update",
 	}
+	driverFlag.Options["credential"] = &types.Flag{
+		Type:     types.StringType,
+		Password: true,
+		Usage:    "The contents of the GC credential file",
+	}
 	return &driverFlag, nil
 }
 
@@ -1119,7 +1124,11 @@ func (d *Driver) ETCDSave(ctx context.Context, clusterInfo *types.ClusterInfo, o
 	return fmt.Errorf("ETCD backup operations are not implemented")
 }
 
-func (d *Driver) ETCDRestore(ctx context.Context, clusterInfo *types.ClusterInfo, opts *types.DriverOptions, snapshotName string) error {
+func (d *Driver) ETCDRestore(ctx context.Context, clusterInfo *types.ClusterInfo, opts *types.DriverOptions, snapshotName string) (*types.ClusterInfo, error) {
+	return nil, fmt.Errorf("ETCD backup operations are not implemented")
+}
+
+func (d *Driver) ETCDRemoveSnapshot(ctx context.Context, clusterInfo *types.ClusterInfo, opts *types.DriverOptions, snapshotName string) error {
 	return fmt.Errorf("ETCD backup operations are not implemented")
 }
 

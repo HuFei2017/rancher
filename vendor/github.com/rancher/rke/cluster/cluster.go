@@ -17,11 +17,11 @@ import (
 	"github.com/rancher/rke/pki"
 	"github.com/rancher/rke/services"
 	"github.com/rancher/rke/util"
-	"github.com/rancher/types/apis/management.cattle.io/v3"
+	v3 "github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v2"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/cert"
@@ -79,6 +79,8 @@ const (
 	NameLabel    = "name"
 
 	WorkerThreads = util.WorkerThreads
+
+	serviceAccountTokenFileParam = "service-account-key-file"
 )
 
 func (c *Cluster) DeployControlPlane(ctx context.Context) error {
@@ -274,7 +276,7 @@ func getLocalConfigAddress(localConfigPath string) (string, error) {
 
 func getLocalAdminConfigWithNewAddress(localConfigPath, cpAddress string, clusterName string) string {
 	config, _ := clientcmd.BuildConfigFromFlags("", localConfigPath)
-	if config == nil {
+	if config == nil || config.BearerToken != "" {
 		return ""
 	}
 	config.Host = fmt.Sprintf("https://%s:6443", cpAddress)
@@ -338,7 +340,7 @@ func (c *Cluster) deployAddons(ctx context.Context) error {
 func (c *Cluster) SyncLabelsAndTaints(ctx context.Context, currentCluster *Cluster) error {
 	// Handle issue when deleting all controlplane nodes https://github.com/rancher/rancher/issues/15810
 	if currentCluster != nil {
-		cpToDelete := hosts.GetToDeleteHosts(currentCluster.ControlPlaneHosts, c.ControlPlaneHosts, c.InactiveHosts)
+		cpToDelete := hosts.GetToDeleteHosts(currentCluster.ControlPlaneHosts, c.ControlPlaneHosts, c.InactiveHosts, false)
 		if len(cpToDelete) == len(currentCluster.ControlPlaneHosts) {
 			log.Infof(ctx, "[sync] Cleaning left control plane nodes from reconcilation")
 			for _, toDeleteHost := range cpToDelete {
@@ -486,12 +488,14 @@ func RestartClusterPods(ctx context.Context, kubeCluster *Cluster) error {
 		fmt.Sprintf("%s=%s", KubeAppLabel, CalicoNetworkPlugin),
 		fmt.Sprintf("%s=%s", KubeAppLabel, FlannelNetworkPlugin),
 		fmt.Sprintf("%s=%s", KubeAppLabel, CanalNetworkPlugin),
-		fmt.Sprintf("%s=%s", NameLabel, WeaveNetworkPlugin),
+		fmt.Sprintf("%s=%s", NameLabel, WeaveNetowrkAppName),
 		fmt.Sprintf("%s=%s", AppLabel, NginxIngressAddonAppName),
 		fmt.Sprintf("%s=%s", KubeAppLabel, DefaultMonitoringProvider),
 		fmt.Sprintf("%s=%s", KubeAppLabel, KubeDNSAddonAppName),
 		fmt.Sprintf("%s=%s", KubeAppLabel, KubeDNSAutoscalerAppName),
 		fmt.Sprintf("%s=%s", KubeAppLabel, CoreDNSAutoscalerAppName),
+		fmt.Sprintf("%s=%s", AppLabel, KubeAPIAuthAppName),
+		fmt.Sprintf("%s=%s", AppLabel, CattleClusterAgentAppName),
 	}
 	var errgrp errgroup.Group
 	labelQueue := util.GetObjectQueue(labelsList)
@@ -527,4 +531,21 @@ func (c *Cluster) GetHostInfoMap() map[string]types.Info {
 		hostsInfoMap[host.Address] = host.DockerInfo
 	}
 	return hostsInfoMap
+}
+
+func IsLegacyKubeAPI(ctx context.Context, kubeCluster *Cluster) (bool, error) {
+	log.Infof(ctx, "[controlplane] Check if rotating a legacy cluster")
+	for _, host := range kubeCluster.ControlPlaneHosts {
+		kubeAPIInspect, err := docker.InspectContainer(ctx, host.DClient, host.Address, services.KubeAPIContainerName)
+		if err != nil {
+			return false, err
+		}
+		for _, arg := range kubeAPIInspect.Args {
+			if strings.Contains(arg, serviceAccountTokenFileParam) &&
+				strings.Contains(arg, pki.GetKeyPath(pki.KubeAPICertName)) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }

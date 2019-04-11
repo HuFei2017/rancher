@@ -334,8 +334,10 @@ def wait_for_condition(condition_type, status, client, obj, timeout=45):
         obj = client.reload(obj)
         delta = time.time() - start
         if delta > timeout:
-            msg = 'Timeout waiting for [{}:{}] for condition after {}' \
-                ' seconds'.format(obj.type, obj.id, delta)
+            msg = 'Expected condition {} to have status {}\n'\
+                'Timeout waiting for [{}:{}] for condition after {} ' \
+                'seconds\n {}'.format(condition_type, status, obj.type, obj.id,
+                                      delta, str(obj))
             raise Exception(msg)
     return obj
 
@@ -365,7 +367,7 @@ def find_condition(condition_type, status, obj):
 def kubernetes_api_client(rancher_client, cluster_name):
     c = rancher_client.by_id_cluster(cluster_name)
     kc = c.generateKubeconfig()
-    loader = KubeConfigLoader(config_dict=yaml.load(kc.config))
+    loader = KubeConfigLoader(config_dict=yaml.full_load(kc.config))
     client_configuration = type.__call__(Configuration)
     loader.load_and_set(client_configuration)
     k8s_client = ApiClient(configuration=client_configuration)

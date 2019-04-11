@@ -129,6 +129,8 @@ func flatten(data map[string]interface{}, driverOptions *types.DriverOptions) {
 			} else {
 				flatten(v.(map[string]interface{}), driverOptions)
 			}
+		case nil:
+			logrus.Debugf("could not convert %v because value is nil %v=%v", reflect.TypeOf(v), k, v)
 		default:
 			logrus.Warnf("could not convert %v %v=%v", reflect.TypeOf(v), k, v)
 		}
@@ -503,6 +505,27 @@ func (e *EngineService) ETCDRestore(ctx context.Context, name string, kontainerD
 	}
 	return endpoint, cls.ServiceAccountToken, cls.RootCACert, nil
 
+}
+
+func (e *EngineService) ETCDRemoveSnapshot(ctx context.Context, name string, kontainerDriver *v3.KontainerDriver, clusterSpec v3.ClusterSpec, snapshotName string) error {
+	runningDriver, err := e.getRunningDriver(kontainerDriver, clusterSpec)
+	if err != nil {
+		return err
+	}
+
+	listenAddr, err := runningDriver.Start()
+	if err != nil {
+		return fmt.Errorf("error starting driver: %v", err)
+	}
+	defer runningDriver.Stop()
+
+	cls, err := e.convertCluster(name, listenAddr, clusterSpec)
+	if err != nil {
+		return err
+	}
+	defer cls.Driver.Close()
+
+	return cls.ETCDRemoveSnapshot(ctx, snapshotName)
 }
 
 func (e *EngineService) GenerateServiceAccount(ctx context.Context, name string, kontainerDriver *v3.KontainerDriver, clusterSpec v3.ClusterSpec) (string, error) {

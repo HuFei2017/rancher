@@ -3,10 +3,11 @@ package monitoring
 import (
 	"context"
 
+	"github.com/rancher/rancher/pkg/monitoring"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 )
 
 // Register initializes the controllers and registers
@@ -46,13 +47,26 @@ func Register(ctx context.Context, agentContext *config.UserContext) {
 	cattleClustersClient.AddHandler(ctx, "prometheus-operator-handler", oh.syncCluster)
 	cattleProjectsClient.Controller().AddClusterScopedHandler(ctx, "prometheus-operator-handler", clusterName, oh.syncProject)
 
+	_, clusterMonitoringNamespace := monitoring.ClusterMonitoringInfo()
+	agentClusterMonitoringEndpointClient := agentContext.Core.Endpoints(clusterMonitoringNamespace)
+
 	// cluster handler
 	ch := &clusterHandler{
 		clusterName:          clusterName,
 		cattleClustersClient: cattleClustersClient,
+		agentEndpointsLister: agentClusterMonitoringEndpointClient.Controller().Lister(),
 		app:                  ah,
 	}
 	cattleClustersClient.AddHandler(ctx, "cluster-monitoring-handler", ch.sync)
+
+	// cluster monitoring enabled handler
+	cattleClusterController := cattleClustersClient.Controller()
+	cmeh := &clusterMonitoringEnabledHandler{
+		clusterName:             clusterName,
+		cattleClusterController: cattleClusterController,
+		cattleClusterLister:     cattleClusterController.Lister(),
+	}
+	agentClusterMonitoringEndpointClient.AddHandler(ctx, "cluster-monitoring-enabled-handler", cmeh.sync)
 
 	// project handler
 	ph := &projectHandler{
@@ -62,7 +76,6 @@ func Register(ctx context.Context, agentContext *config.UserContext) {
 		app:                 ah,
 	}
 	cattleProjectsClient.Controller().AddClusterScopedHandler(ctx, "project-monitoring-handler", clusterName, ph.sync)
-
 }
 
 func RegisterAgent(ctx context.Context, agentContext *config.UserOnlyContext) {
@@ -75,4 +88,19 @@ func RegisterAgent(ctx context.Context, agentContext *config.UserOnlyContext) {
 	}
 	agentContext.Core.Nodes("").AddHandler(ctx, "control-plane-endpoint", cp.sync)
 	agentContext.Core.Endpoints("cattle-prometheus").AddHandler(ctx, "control-plane-endpoint", cp.syncEndpoints)
+
+	promIndexes := cache.Indexers{
+		promByMemberNamespaceIndex: promsByMemberNamespace,
+	}
+
+	promInformer := agentContext.Monitoring.Prometheuses("").Controller().Informer()
+	promInformer.AddIndexers(promIndexes)
+
+	cr := ConfigRefreshHandler{
+		prometheusClient:  agentContext.Monitoring.Prometheuses(""),
+		nsLister:          agentContext.Core.Namespaces("").Controller().Lister(),
+		prometheusIndexer: promInformer.GetIndexer(),
+	}
+	agentContext.Core.Namespaces("").AddHandler(ctx, "project-monitoring-config-refresh", cr.syncNamespace)
+	agentContext.Monitoring.Prometheuses("").AddHandler(ctx, "project-monitoring-config-refresh", cr.syncPrometheus)
 }
